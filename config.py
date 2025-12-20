@@ -8,7 +8,7 @@ DEFAULT_URL = "https://vtf.trafikverket.se/tmg101/AGS/tmg104bestaellinfouttag.as
 
 # Output file settings
 DEFAULT_OUTPUT_FILE = None  # None = auto-generate with timestamp
-OUTPUT_DIRECTORY = "./"  # Directory to save Excel files
+OUTPUT_DIRECTORY = "./output"  # Directory to save Excel files
 
 # Browser settings
 HEADLESS_MODE = False  # Set to True to run browser in background

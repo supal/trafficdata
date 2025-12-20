@@ -16,6 +16,14 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service
 import os
 from datetime import datetime
+from urllib.parse import urlparse, parse_qs
+import re
+
+# Import config
+try:
+    from config import OUTPUT_DIRECTORY
+except ImportError:
+    OUTPUT_DIRECTORY = "./output"
 
 # Import compatibility module
 try:
@@ -35,6 +43,87 @@ class TrafikverketScraper:
         self.driver = None
         self.data = []
         self.headless = headless
+        self.coordinate_cache = {}  # Cache for punkt_id -> (lat, lon)
+        self.load_coordinate_cache()  # Load cache from file
+        
+    def load_coordinate_cache(self):
+        """Load coordinate cache from file if it exists"""
+        cache_file = "coordinate_cache.txt"
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith('#'):
+                            continue
+                        parts = line.split('|')
+                        if len(parts) == 3:
+                            punkt_id = parts[0].strip()
+                            lat = parts[1].strip()
+                            lon = parts[2].strip()
+                            self.coordinate_cache[punkt_id] = (lat, lon)
+                print(f"Loaded {len(self.coordinate_cache)} cached coordinates")
+            except Exception as e:
+                print(f"Warning: Could not load coordinate cache: {e}")
+    
+    def save_coordinate_cache(self):
+        """Save coordinate cache to file"""
+        cache_file = "coordinate_cache.txt"
+        try:
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                f.write("# Coordinate Cache (punkt_id|latitude|longitude)\n")
+                f.write("# Auto-generated - do not edit manually\n\n")
+                for punkt_id, (lat, lon) in self.coordinate_cache.items():
+                    f.write(f"{punkt_id}|{lat}|{lon}\n")
+            print(f"Saved {len(self.coordinate_cache)} coordinates to cache")
+        except Exception as e:
+            print(f"Warning: Could not save coordinate cache: {e}")
+    
+    def extract_punkt_ids_from_url(self):
+        """Extract punkt IDs from the URL parameter"""
+        try:
+            parsed = urlparse(self.url)
+            params = parse_qs(parsed.query)
+            punkt_nrlista = params.get('punktnrlista', [''])[0]
+            if punkt_nrlista:
+                punkt_ids = punkt_nrlista.split(',')
+                return [pid.strip() for pid in punkt_ids]
+        except Exception as e:
+            print(f"Warning: Could not extract punkt IDs from URL: {e}")
+        return []
+    
+    def fetch_coordinate_from_trafikverket(self, punkt_id):
+        """Fetch coordinates for a punkt ID from Trafikverket (if available)"""
+        # Try to find coordinates from the page
+        try:
+            # Search for punkt ID in page and extract nearby coordinate info
+            scripts = self.driver.find_elements(By.TAG_NAME, "script")
+            for script in scripts:
+                script_text = script.get_attribute("innerHTML")
+                if punkt_id in script_text:
+                    # Try to extract lat/lon if present in script
+                    # Look for patterns like "lat": 59.xxx or latitude: 59.xxx
+                    lat_match = re.search(r'["\']?(?:lat|latitude)["\']?\s*:\s*([0-9.]+)', script_text)
+                    lon_match = re.search(r'["\']?(?:lon|longitude)["\']?\s*:\s*([0-9.]+)', script_text)
+                    if lat_match and lon_match:
+                        return lat_match.group(1), lon_match.group(1)
+        except:
+            pass
+        return None, None
+    
+    def get_coordinates(self, punkt_id):
+        """Get coordinates for a punkt ID (from cache or fetch)"""
+        if punkt_id in self.coordinate_cache:
+            return self.coordinate_cache[punkt_id]
+        
+        # Try to fetch from website
+        lat, lon = self.fetch_coordinate_from_trafikverket(punkt_id)
+        if lat and lon:
+            self.coordinate_cache[punkt_id] = (lat, lon)
+            return lat, lon
+        
+        return None, None
+
         
     def setup_driver(self):
         """Set up the Chrome WebDriver"""
@@ -393,6 +482,86 @@ class TrafikverketScraper:
             print(f"Error extracting table data: {e}")
             return False
     
+    def load_translations(self):
+        """Load translations from translation.txt file"""
+        translations = {}
+        translation_file = "translation.txt"
+        
+        if not os.path.exists(translation_file):
+            print(f"Warning: {translation_file} not found, skipping translations")
+            return translations
+        
+        try:
+            with open(translation_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Split by comma to get individual key=value pairs
+            pairs = content.split(',')
+            
+            for pair in pairs:
+                pair = pair.strip()
+                # Skip empty lines and comments
+                if not pair or pair.startswith('#'):
+                    continue
+                
+                # Split by = to separate key and value
+                if '=' in pair:
+                    parts = pair.split('=', 1)  # Use maxsplit=1 in case value contains =
+                    if len(parts) == 2:
+                        swedish = parts[0].strip()
+                        english = parts[1].strip()
+                        if swedish and english:  # Only add if both parts are non-empty
+                            translations[swedish] = english
+            
+            print(f"Loaded {len(translations)} translation(s)")
+            return translations
+        except Exception as e:
+            print(f"Error loading translations: {e}")
+            return {}
+    
+    def apply_translations(self, df, translations):
+        """Apply translations to dataframe columns and values"""
+        if not translations:
+            return df
+        
+        # Normalize translation keys (remove extra whitespace, tabs, etc.)
+        normalized_translations = {}
+        for swedish, english in translations.items():
+            normalized_key = ' '.join(swedish.split())  # Normalize whitespace
+            normalized_translations[normalized_key] = english
+        
+        # Translate column headers
+        normalized_columns = {}
+        for col in df.columns:
+            normalized_col = ' '.join(str(col).split())
+            if normalized_col in normalized_translations:
+                normalized_columns[col] = normalized_translations[normalized_col]
+            else:
+                normalized_columns[col] = col
+        df.columns = [normalized_columns.get(col, col) for col in df.columns]
+        
+        # Sort translation keys by length (longest first) to avoid partial replacements
+        sorted_translations = sorted(normalized_translations.items(), key=lambda x: len(x[0]), reverse=True)
+        
+        # Translate cell values (all columns) - use substring matching
+        for col in df.columns:
+            if df[col].dtype == 'object':  # Only for string columns
+                def translate_value(x):
+                    if pd.isna(x):
+                        return x
+                    text = str(x)
+                    # Normalize whitespace in the text
+                    normalized_text = ' '.join(text.split())
+                    # Replace translation keys in order (longest first)
+                    for swedish, english in sorted_translations:
+                        if swedish in normalized_text:
+                            normalized_text = normalized_text.replace(swedish, english)
+                    return normalized_text
+                
+                df[col] = df[col].apply(translate_value)
+        
+        return df
+    
     def save_to_excel(self, filename=None):
         """Save extracted data to Excel file - append all data to same sheet"""
         if not self.data:
@@ -404,19 +573,55 @@ class TrafikverketScraper:
             filename = f"trafikverket_data_{timestamp}.xlsx"
         
         try:
+            # Create output directory if it doesn't exist
+            if not os.path.exists(OUTPUT_DIRECTORY):
+                os.makedirs(OUTPUT_DIRECTORY)
+                print(f"Created output directory: {OUTPUT_DIRECTORY}")
+            
+            # Construct full filepath
+            filepath = os.path.join(OUTPUT_DIRECTORY, os.path.basename(filename))
+            
+            # Extract punkt IDs first
+            punkt_ids = self.extract_punkt_ids_from_url()
+            print(f"Extracted punkt IDs from URL: {punkt_ids}")
+            
+            # Get coordinates for all punkt IDs and try to fetch if missing
+            coordinates_data = {}
+            for punkt_id in punkt_ids:
+                lat, lon = self.get_coordinates(punkt_id)
+                if not lat or not lon:
+                    # Try to fetch from website
+                    lat, lon = self.fetch_coordinate_from_trafikverket(punkt_id)
+                    if lat and lon:
+                        self.coordinate_cache[punkt_id] = (lat, lon)
+                        print(f"  Found coordinates for {punkt_id}: {lat}, {lon}")
+                
+                coordinates_data[punkt_id] = (lat, lon)
+            
             # Concatenate all dataframes into one
             combined_df = pd.concat(self.data, ignore_index=True)
             
+            # Save the updated cache
+            self.save_coordinate_cache()
+            
+            # Load and apply translations
+            translations = self.load_translations()
+            if translations:
+                print("Applying translations...")
+                combined_df = self.apply_translations(combined_df, translations)
+            
             # Save to single sheet
-            with pd.ExcelWriter(filename, engine='openpyxl') as writer:
+            with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
                 combined_df.to_excel(writer, sheet_name="Data", index=False)
             
-            filepath = os.path.abspath(filename)
-            print(f"Data successfully saved to: {filepath}")
+            full_filepath = os.path.abspath(filepath)
+            print(f"Data successfully saved to: {full_filepath}")
             print(f"  Total rows: {len(combined_df)}")
             return True
         except Exception as e:
             print(f"Error saving to Excel: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def run(self, output_file=None):
@@ -524,12 +729,12 @@ def main():
         if os.path.exists(input_file):
             try:
                 with open(input_file, 'r', encoding='utf-8') as f:
-                    urls = [line.strip() for line in f if line.strip()]
+                    urls = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
                     if urls:
                         urls_to_process = urls
                         print(f"Loaded {len(urls)} URL(s) from {input_file}")
                     else:
-                        print(f"Error: {input_file} is empty")
+                        print(f"Error: {input_file} is empty or contains only comments")
                         sys.exit(1)
             except Exception as e:
                 print(f"Error reading {input_file}: {e}")

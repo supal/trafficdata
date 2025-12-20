@@ -1,0 +1,13 @@
+Tidpunkt=Time,
+Samtliga fordon=All vehicles,
+Medelhast=Average speed,
+Tunga fordon=Heavy vehicles,
+Personbil=Passenger car,
+Tunga fordon med släp=Heavy vehicles with trailer,
+Tunga fordon utan släp=Heavy vehicles without trailer,
+Treaxlig dragbil med släp=Three-axle tractor with trailer,
+Tvåaxlig dragbil med släp=Two-axle tractor with trailer,
+Treaxlig dragbil utan släp=Three-axle tractor without trailer,
+Tvåaxlig dragbil utan släp=Two-axle tractor without trailer,
+Personbil med släp=Passenger car with trailer,
+Personbil utan släp=Passenger car without trailer

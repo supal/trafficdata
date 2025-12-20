@@ -1,0 +1,5 @@
+# Coordinate Cache (punkt_id|latitude|longitude)
+# Auto-generated - do not edit manually
+
+13520524|59.2574|14.6289
+13520529|59.2580|14.6295
