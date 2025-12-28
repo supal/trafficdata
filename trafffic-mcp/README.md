@@ -12,6 +12,7 @@ A Python-based MCP (Model Context Protocol) server with tools for traffic data a
 ### Traffic Analysis Tools
 - **average_speed_heavy_vehicles**: Calculates and returns average speed statistics for heavy vehicles
 - **average_speed_passenger_cars**: Calculates and returns average speed statistics for passenger cars
+- **speed_graph**: Generates and returns a graph showing average speed over time for heavy vehicles and passenger cars
 
 ## Installation
 
@@ -139,6 +140,19 @@ Passenger Cars Statistics:
   Data Points: 323
 ```
 
+#### Speed Graph
+Generates a graph showing average speed over time for heavy vehicles and passenger cars.
+```json
+{
+  "name": "speed_graph"
+}
+```
+Returns: A PNG graph image (base64 encoded) displaying:
+- X-axis: Time (with datetime labels)
+- Y-axis: Average Speed in km/h
+- Two lines: one for heavy vehicles (red) and one for passenger cars (blue)
+- Grid and legend for easy interpretation
+
 ## Project Structure
 
 ```
@@ -155,6 +169,7 @@ Passenger Cars Statistics:
 - mcp SDK (latest version)
 - pandas (for data processing)
 - openpyxl (for Excel file handling)
+- matplotlib (for graph generation)
 
 ## Implementation Details
 

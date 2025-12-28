@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 A MCP server with tools for traffic data analysis.
-Tools: ping, sum, read_file, average_speed_heavy_vehicles, average_speed_passenger_cars
+Tools: ping, sum, read_file, average_speed_heavy_vehicles, average_speed_passenger_cars, speed_graph
 """
 
 import asyncio
@@ -10,6 +10,11 @@ from mcp.server import Server
 import mcp.types as types
 from openpyxl import load_workbook
 import statistics
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from datetime import datetime
+import base64
+from io import BytesIO
 
 
 # Create the MCP server
@@ -29,42 +34,116 @@ def load_traffic_data():
         # Get headers from row 2
         headers = [cell.value for cell in ws[2]]
         
+        # Time is in column 1
         # Heavy vehicle speed is in column 5 (0-indexed: 4)
         # Passenger car speed is in column 7 (0-indexed: 6)
+        time_col = 1
         heavy_vehicle_speed_col = 5
         passenger_car_speed_col = 7
         
         # Extract data from row 3 onwards
+        timestamps = []
         heavy_speeds = []
         passenger_speeds = []
         
         for row_idx in range(3, ws.max_row + 1):
-            # Heavy vehicle speed
-            cell_value = ws.cell(row=row_idx, column=heavy_vehicle_speed_col).value
-            if cell_value and str(cell_value).strip() and str(cell_value) != "0,0":
+            # Get timestamp
+            time_cell = ws.cell(row=row_idx, column=time_col).value
+            timestamp = None
+            if time_cell:
                 try:
-                    speed = float(str(cell_value).replace(",", "."))
-                    if speed > 0:
-                        heavy_speeds.append(speed)
+                    if isinstance(time_cell, datetime):
+                        timestamp = time_cell
+                    else:
+                        timestamp = datetime.fromisoformat(str(time_cell))
+                except:
+                    pass
+            
+            # Heavy vehicle speed
+            heavy_cell = ws.cell(row=row_idx, column=heavy_vehicle_speed_col).value
+            heavy_speed = None
+            if heavy_cell and str(heavy_cell).strip() and str(heavy_cell) != "0,0":
+                try:
+                    heavy_speed = float(str(heavy_cell).replace(",", "."))
+                    if heavy_speed <= 0:
+                        heavy_speed = None
                 except:
                     pass
             
             # Passenger car speed
-            cell_value = ws.cell(row=row_idx, column=passenger_car_speed_col).value
-            if cell_value and str(cell_value).strip() and str(cell_value) != "0,0":
+            passenger_cell = ws.cell(row=row_idx, column=passenger_car_speed_col).value
+            passenger_speed = None
+            if passenger_cell and str(passenger_cell).strip() and str(passenger_cell) != "0,0":
                 try:
-                    speed = float(str(cell_value).replace(",", "."))
-                    if speed > 0:
-                        passenger_speeds.append(speed)
+                    passenger_speed = float(str(passenger_cell).replace(",", "."))
+                    if passenger_speed <= 0:
+                        passenger_speed = None
                 except:
                     pass
+            
+            # Only add row if we have timestamp and at least one speed value
+            if timestamp and (heavy_speed is not None or passenger_speed is not None):
+                timestamps.append(timestamp)
+                heavy_speeds.append(heavy_speed if heavy_speed is not None else 0)
+                passenger_speeds.append(passenger_speed if passenger_speed is not None else 0)
         
         return {
+            "timestamps": timestamps,
             "heavy_speeds": heavy_speeds,
             "passenger_speeds": passenger_speeds
         }
     except Exception as e:
         return {"error": str(e)}
+
+
+def generate_speed_graph():
+    """Generate a graph showing average speed over time for heavy vehicles and passenger cars."""
+    try:
+        data = load_traffic_data()
+        if not data or "error" in data:
+            return None
+        
+        timestamps = data.get("timestamps", [])
+        heavy_speeds = data.get("heavy_speeds", [])
+        passenger_speeds = data.get("passenger_speeds", [])
+        
+        if not timestamps or not (heavy_speeds or passenger_speeds):
+            return None
+        
+        # Create figure and axis
+        fig, ax = plt.subplots(figsize=(12, 6))
+        
+        # Plot both datasets
+        ax.plot(timestamps, heavy_speeds, label='Heavy Vehicles', color='red', linewidth=2, marker='o', markersize=3)
+        ax.plot(timestamps, passenger_speeds, label='Passenger Cars', color='blue', linewidth=2, marker='s', markersize=3)
+        
+        # Format the plot
+        ax.set_xlabel('Time', fontsize=12)
+        ax.set_ylabel('Average Speed (km/h)', fontsize=12)
+        ax.set_title('Average Speed Over Time: Heavy Vehicles vs Passenger Cars', fontsize=14, fontweight='bold')
+        ax.legend(fontsize=10)
+        ax.grid(True, alpha=0.3)
+        
+        # Format x-axis to show dates nicely
+        ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
+        fig.autofmt_xdate(rotation=45, ha='right')
+        
+        # Tight layout to prevent label cutoff
+        fig.tight_layout()
+        
+        # Save to bytes buffer
+        buf = BytesIO()
+        fig.savefig(buf, format='png', dpi=100)
+        buf.seek(0)
+        
+        # Encode to base64
+        img_base64 = base64.b64encode(buf.read()).decode('utf-8')
+        plt.close(fig)
+        
+        return img_base64
+    except Exception as e:
+        return None
 
 
 @server.list_tools()
@@ -124,6 +203,15 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="average_speed_passenger_cars",
             description="Returns the average speed of passenger cars from traffic data",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        ),
+        types.Tool(
+            name="speed_graph",
+            description="Generates and returns a graph showing average speed over time for heavy vehicles and passenger cars",
             inputSchema={
                 "type": "object",
                 "properties": {},
@@ -203,6 +291,13 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
         result += f"  Data Points: {count}"
         
         return [types.TextContent(type="text", text=result)]
+    
+    elif name == "speed_graph":
+        img_base64 = generate_speed_graph()
+        if not img_base64:
+            return [types.TextContent(type="text", text="Error generating graph")]
+        
+        return [types.ImageContent(type="image", data=img_base64, mimeType="image/png")]
     
     else:
         return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
