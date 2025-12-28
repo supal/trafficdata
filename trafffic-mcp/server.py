@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-A MCP server with tools for traffic data analysis.
-Tools: ping, sum, read_file, average_speed_heavy_vehicles, average_speed_passenger_cars, speed_graph
+A MCP server with tools for comprehensive traffic data analysis.
+Supports analysis of all vehicle type combinations.
 """
 
 import asyncio
@@ -20,9 +20,24 @@ from io import BytesIO
 # Create the MCP server
 server = Server("traffic-mcp-server")
 
+# Column mappings for vehicle types
+VEHICLE_TYPES = {
+    "all_vehicles": {"count_col": 2, "speed_col": 3, "name": "All Vehicles"},
+    "heavy_vehicles": {"count_col": 4, "speed_col": 5, "name": "Heavy Vehicles"},
+    "passenger_cars": {"count_col": 6, "speed_col": 7, "name": "Passenger Cars"},
+    "heavy_with_trailer": {"count_col": 8, "speed_col": 9, "name": "Heavy Vehicles with Trailer"},
+    "heavy_without_trailer": {"count_col": 10, "speed_col": 11, "name": "Heavy Vehicles without Trailer"},
+    "three_axle_with_trailer": {"count_col": 12, "speed_col": 13, "name": "Three-Axle Tractor with Trailer"},
+    "two_axle_with_trailer": {"count_col": 14, "speed_col": 15, "name": "Two-Axle Tractor with Trailer"},
+    "three_axle_without_trailer": {"count_col": 16, "speed_col": 17, "name": "Three-Axle Tractor without Trailer"},
+    "two_axle_without_trailer": {"count_col": 18, "speed_col": 19, "name": "Two-Axle Tractor without Trailer"},
+    "passenger_with_trailer": {"count_col": 20, "speed_col": 21, "name": "Passenger Cars with Trailer"},
+    "passenger_without_trailer": {"count_col": 22, "speed_col": 23, "name": "Passenger Cars without Trailer"},
+}
+
 
 def load_traffic_data():
-    """Load traffic data from Excel file."""
+    """Load all traffic data from Excel file."""
     excel_file = Path(__file__).parent / "data" / "trafikverket_data_9dccacb0.xlsx"
     if not excel_file.exists():
         return None
@@ -31,20 +46,9 @@ def load_traffic_data():
         wb = load_workbook(excel_file)
         ws = wb.active
         
-        # Get headers from row 2
-        headers = [cell.value for cell in ws[2]]
-        
-        # Time is in column 1
-        # Heavy vehicle speed is in column 5 (0-indexed: 4)
-        # Passenger car speed is in column 7 (0-indexed: 6)
         time_col = 1
-        heavy_vehicle_speed_col = 5
-        passenger_car_speed_col = 7
-        
-        # Extract data from row 3 onwards
         timestamps = []
-        heavy_speeds = []
-        passenger_speeds = []
+        data = {key: [] for key in VEHICLE_TYPES.keys()}
         
         for row_idx in range(3, ws.max_row + 1):
             # Get timestamp
@@ -59,69 +63,113 @@ def load_traffic_data():
                 except:
                     pass
             
-            # Heavy vehicle speed
-            heavy_cell = ws.cell(row=row_idx, column=heavy_vehicle_speed_col).value
-            heavy_speed = None
-            if heavy_cell and str(heavy_cell).strip() and str(heavy_cell) != "0,0":
-                try:
-                    heavy_speed = float(str(heavy_cell).replace(",", "."))
-                    if heavy_speed <= 0:
-                        heavy_speed = None
-                except:
-                    pass
+            if not timestamp:
+                continue
             
-            # Passenger car speed
-            passenger_cell = ws.cell(row=row_idx, column=passenger_car_speed_col).value
-            passenger_speed = None
-            if passenger_cell and str(passenger_cell).strip() and str(passenger_cell) != "0,0":
-                try:
-                    passenger_speed = float(str(passenger_cell).replace(",", "."))
-                    if passenger_speed <= 0:
-                        passenger_speed = None
-                except:
-                    pass
+            # Extract speeds for all vehicle types
+            row_has_data = False
+            vehicle_speeds = {}
             
-            # Only add row if we have timestamp and at least one speed value
-            if timestamp and (heavy_speed is not None or passenger_speed is not None):
+            for vehicle_key, col_info in VEHICLE_TYPES.items():
+                speed_col = col_info["speed_col"]
+                speed_cell = ws.cell(row=row_idx, column=speed_col).value
+                
+                speed = None
+                if speed_cell and str(speed_cell).strip() and str(speed_cell) != "0,0":
+                    try:
+                        speed = float(str(speed_cell).replace(",", "."))
+                        if speed > 0:
+                            vehicle_speeds[vehicle_key] = speed
+                            row_has_data = True
+                    except:
+                        pass
+            
+            # Add row if we have at least one speed value
+            if row_has_data:
                 timestamps.append(timestamp)
-                heavy_speeds.append(heavy_speed if heavy_speed is not None else 0)
-                passenger_speeds.append(passenger_speed if passenger_speed is not None else 0)
+                for vehicle_key in VEHICLE_TYPES.keys():
+                    data[vehicle_key].append(vehicle_speeds.get(vehicle_key, 0))
         
-        return {
-            "timestamps": timestamps,
-            "heavy_speeds": heavy_speeds,
-            "passenger_speeds": passenger_speeds
-        }
+        data["timestamps"] = timestamps
+        return data
     except Exception as e:
         return {"error": str(e)}
 
 
-def generate_speed_graph():
-    """Generate a graph showing average speed over time for heavy vehicles and passenger cars."""
+def calculate_statistics(speeds):
+    """Calculate statistics for a speed list."""
+    valid_speeds = [s for s in speeds if s > 0]
+    if not valid_speeds:
+        return None
+    
+    return {
+        "count": len(valid_speeds),
+        "average": statistics.mean(valid_speeds),
+        "min": min(valid_speeds),
+        "max": max(valid_speeds),
+        "median": statistics.median(valid_speeds),
+    }
+
+
+def format_statistics(vehicle_name, stats):
+    """Format statistics for display."""
+    if not stats:
+        return f"{vehicle_name}:\n  No data available"
+    
+    result = f"{vehicle_name}:\n"
+    result += f"  Average Speed: {stats['average']:.2f} km/h\n"
+    result += f"  Min Speed: {stats['min']:.2f} km/h\n"
+    result += f"  Max Speed: {stats['max']:.2f} km/h\n"
+    result += f"  Median Speed: {stats['median']:.2f} km/h\n"
+    result += f"  Data Points: {stats['count']}"
+    return result
+
+
+def generate_speed_graph(vehicle_types=None):
+    """Generate a graph showing average speed over time for selected vehicle types."""
     try:
         data = load_traffic_data()
         if not data or "error" in data:
             return None
         
         timestamps = data.get("timestamps", [])
-        heavy_speeds = data.get("heavy_speeds", [])
-        passenger_speeds = data.get("passenger_speeds", [])
-        
-        if not timestamps or not (heavy_speeds or passenger_speeds):
+        if not timestamps:
             return None
         
-        # Create figure and axis
-        fig, ax = plt.subplots(figsize=(12, 6))
+        # Default to main vehicle types if not specified
+        if vehicle_types is None:
+            vehicle_types = ["heavy_vehicles", "passenger_cars"]
         
-        # Plot both datasets
-        ax.plot(timestamps, heavy_speeds, label='Heavy Vehicles', color='red', linewidth=2, marker='o', markersize=3)
-        ax.plot(timestamps, passenger_speeds, label='Passenger Cars', color='blue', linewidth=2, marker='s', markersize=3)
+        # Create figure and axis
+        fig, ax = plt.subplots(figsize=(14, 7))
+        
+        # Color map for different vehicle types
+        colors = {
+            "heavy_vehicles": "red",
+            "passenger_cars": "blue",
+            "heavy_with_trailer": "darkred",
+            "heavy_without_trailer": "lightcoral",
+            "passenger_with_trailer": "darkblue",
+            "passenger_without_trailer": "lightblue",
+            "two_axle_with_trailer": "orange",
+            "three_axle_with_trailer": "darkorange",
+            "two_axle_without_trailer": "yellow",
+            "three_axle_without_trailer": "gold",
+        }
+        
+        # Plot each vehicle type
+        for vehicle_key in vehicle_types:
+            if vehicle_key in VEHICLE_TYPES and vehicle_key in data:
+                speeds = data[vehicle_key]
+                label = VEHICLE_TYPES[vehicle_key]["name"]
+                color = colors.get(vehicle_key, "black")
+                ax.plot(timestamps, speeds, label=label, color=color, linewidth=2, marker='o', markersize=3, alpha=0.7)
         
         # Format the plot
         ax.set_xlabel('Time', fontsize=12)
         ax.set_ylabel('Average Speed (km/h)', fontsize=12)
-        ax.set_title('Average Speed Over Time: Heavy Vehicles vs Passenger Cars', fontsize=14, fontweight='bold')
-        ax.legend(fontsize=10)
+        ax.set_title('Average Speed Over Time by Vehicle Type', fontsize=14, fontweight='bold')
+        ax.legend(fontsize=9, loc='best')
         ax.grid(True, alpha=0.3)
         
         # Format x-axis to show dates nicely
@@ -149,7 +197,7 @@ def generate_speed_graph():
 @server.list_tools()
 async def list_tools() -> list[types.Tool]:
     """List all available tools."""
-    return [
+    tools = [
         types.Tool(
             name="ping",
             description="Returns 'pong' as a simple test",
@@ -165,14 +213,8 @@ async def list_tools() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "a": {
-                        "type": "number",
-                        "description": "First number",
-                    },
-                    "b": {
-                        "type": "number",
-                        "description": "Second number",
-                    },
+                    "a": {"type": "number", "description": "First number"},
+                    "b": {"type": "number", "description": "Second number"},
                 },
                 "required": ["a", "b"],
             },
@@ -183,46 +225,60 @@ async def list_tools() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Path to the file to read",
-                    },
+                    "path": {"type": "string", "description": "Path to the file to read"},
                 },
                 "required": ["path"],
             },
         ),
-        types.Tool(
-            name="average_speed_heavy_vehicles",
-            description="Returns the average speed of heavy vehicles from traffic data",
-            inputSchema={
-                "type": "object",
-                "properties": {},
-                "required": [],
-            },
-        ),
-        types.Tool(
-            name="average_speed_passenger_cars",
-            description="Returns the average speed of passenger cars from traffic data",
-            inputSchema={
-                "type": "object",
-                "properties": {},
-                "required": [],
-            },
-        ),
+    ]
+    
+    # Add vehicle type tools
+    for vehicle_key, vehicle_info in VEHICLE_TYPES.items():
+        tools.append(
+            types.Tool(
+                name=f"average_speed_{vehicle_key}",
+                description=f"Returns the average speed of {vehicle_info['name']} from traffic data",
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                },
+            )
+        )
+    
+    # Add graph tools
+    tools.extend([
         types.Tool(
             name="speed_graph",
-            description="Generates and returns a graph showing average speed over time for heavy vehicles and passenger cars",
+            description="Generates a graph showing average speed over time (default: heavy vehicles and passenger cars)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "vehicle_types": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of vehicle types to include (optional)",
+                    },
+                },
+                "required": [],
+            },
+        ),
+        types.Tool(
+            name="all_vehicle_statistics",
+            description="Returns average speed statistics for all vehicle types",
             inputSchema={
                 "type": "object",
                 "properties": {},
                 "required": [],
             },
         ),
-    ]
+    ])
+    
+    return tools
 
 
 @server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
+async def call_tool(name: str, arguments: dict) -> list[types.TextContent | types.ImageContent]:
     """Execute a tool by name with the given arguments."""
     if name == "ping":
         return [types.TextContent(type="text", text="pong")]
@@ -248,52 +304,46 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
         except Exception as e:
             return [types.TextContent(type="text", text=f"Error reading file: {str(e)}")]
     
-    elif name == "average_speed_heavy_vehicles":
+    elif name.startswith("average_speed_"):
+        # Extract vehicle type from tool name
+        vehicle_key = name[len("average_speed_"):]
+        
         data = load_traffic_data()
         if not data or "error" in data:
             return [types.TextContent(type="text", text=f"Error loading traffic data: {data.get('error', 'Unknown error')}")]
         
-        speeds = data.get("heavy_speeds", [])
-        if not speeds:
-            return [types.TextContent(type="text", text="No heavy vehicle speed data available")]
+        if vehicle_key not in VEHICLE_TYPES:
+            return [types.TextContent(type="text", text=f"Unknown vehicle type: {vehicle_key}")]
         
-        avg_speed = statistics.mean(speeds)
-        min_speed = min(speeds)
-        max_speed = max(speeds)
-        count = len(speeds)
+        speeds = data.get(vehicle_key, [])
+        vehicle_name = VEHICLE_TYPES[vehicle_key]["name"]
         
-        result = f"Heavy Vehicles Statistics:\n"
-        result += f"  Average Speed: {avg_speed:.2f} km/h\n"
-        result += f"  Min Speed: {min_speed:.2f} km/h\n"
-        result += f"  Max Speed: {max_speed:.2f} km/h\n"
-        result += f"  Data Points: {count}"
+        stats = calculate_statistics(speeds)
+        result = format_statistics(vehicle_name, stats)
         
         return [types.TextContent(type="text", text=result)]
     
-    elif name == "average_speed_passenger_cars":
+    elif name == "all_vehicle_statistics":
         data = load_traffic_data()
         if not data or "error" in data:
             return [types.TextContent(type="text", text=f"Error loading traffic data: {data.get('error', 'Unknown error')}")]
         
-        speeds = data.get("passenger_speeds", [])
-        if not speeds:
-            return [types.TextContent(type="text", text="No passenger car speed data available")]
+        result = "Average Speed Statistics for All Vehicle Types:\n" + "=" * 70 + "\n\n"
         
-        avg_speed = statistics.mean(speeds)
-        min_speed = min(speeds)
-        max_speed = max(speeds)
-        count = len(speeds)
-        
-        result = f"Passenger Cars Statistics:\n"
-        result += f"  Average Speed: {avg_speed:.2f} km/h\n"
-        result += f"  Min Speed: {min_speed:.2f} km/h\n"
-        result += f"  Max Speed: {max_speed:.2f} km/h\n"
-        result += f"  Data Points: {count}"
+        for vehicle_key, vehicle_info in VEHICLE_TYPES.items():
+            speeds = data.get(vehicle_key, [])
+            stats = calculate_statistics(speeds)
+            if stats:
+                result += format_statistics(vehicle_info["name"], stats)
+                result += "\n\n"
         
         return [types.TextContent(type="text", text=result)]
     
     elif name == "speed_graph":
-        img_base64 = generate_speed_graph()
+        # Get vehicle types from arguments if provided
+        vehicle_types = arguments.get("vehicle_types")
+        
+        img_base64 = generate_speed_graph(vehicle_types)
         if not img_base64:
             return [types.TextContent(type="text", text="Error generating graph")]
         
@@ -313,7 +363,5 @@ async def main():
             write_stream,
             server.create_initialization_options()
         )
-
-
 if __name__ == "__main__":
     asyncio.run(main())
