@@ -1,12 +1,17 @@
-# Simple MCP Server
+# Traffic MCP Server
 
-A Python-based MCP (Model Context Protocol) server with three example tools.
+A Python-based MCP (Model Context Protocol) server with tools for traffic data analysis.
 
 ## Features
 
+### Core Tools
 - **ping**: Returns "pong" for testing connectivity
 - **sum**: Adds two numbers together
 - **read_file**: Reads and returns the contents of a text file
+
+### Traffic Analysis Tools
+- **average_speed_heavy_vehicles**: Calculates and returns average speed statistics for heavy vehicles
+- **average_speed_passenger_cars**: Calculates and returns average speed statistics for passenger cars
 
 ## Installation
 
@@ -102,6 +107,38 @@ Read a text file by path.
 ```
 Returns: File contents as text
 
+#### Average Speed Heavy Vehicles
+Get average speed statistics for heavy vehicles from traffic data.
+```json
+{
+  "name": "average_speed_heavy_vehicles"
+}
+```
+Returns: 
+```
+Heavy Vehicles Statistics:
+  Average Speed: 58.73 km/h
+  Min Speed: 33.50 km/h
+  Max Speed: 82.10 km/h
+  Data Points: 89
+```
+
+#### Average Speed Passenger Cars
+Get average speed statistics for passenger cars from traffic data.
+```json
+{
+  "name": "average_speed_passenger_cars"
+}
+```
+Returns:
+```
+Passenger Cars Statistics:
+  Average Speed: 60.78 km/h
+  Min Speed: 21.20 km/h
+  Max Speed: 118.80 km/h
+  Data Points: 323
+```
+
 ## Project Structure
 
 ```
@@ -116,6 +153,8 @@ Returns: File contents as text
 
 - Python 3.10 or higher
 - mcp SDK (latest version)
+- pandas (for data processing)
+- openpyxl (for Excel file handling)
 
 ## Implementation Details
 
