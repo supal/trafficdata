@@ -26,7 +26,6 @@ def check_dependencies() -> bool:
     required_packages = [
         'selenium',
         'pandas',
-        'openpyxl',
         'webdriver_manager'
     ]
     

@@ -8,7 +8,7 @@ DEFAULT_URL = "https://vtf.trafikverket.se/tmg101/AGS/tmg104bestaellinfouttag.as
 
 # Output file settings
 DEFAULT_OUTPUT_FILE = None  # None = auto-generate with timestamp
-OUTPUT_DIRECTORY = "./output"  # Directory to save Excel files
+OUTPUT_DIRECTORY = "./output"  # Directory to save output files
 
 # Browser settings
 HEADLESS_MODE = False  # Set to True to run browser in background
@@ -38,10 +38,8 @@ START_BUTTON_SELECTORS = [
     "//input[@name='startButton']"
 ]
 
-# Excel export settings
-EXCEL_ENGINE = 'openpyxl'  # openpyxl or xlsxwriter
-INCLUDE_INDEX = False  # Include DataFrame index in Excel
-INCLUDE_HEADER = True  # Include column headers
+# Data export settings
+# CSV export is the default format
 
 # Logging
 VERBOSE_OUTPUT = True

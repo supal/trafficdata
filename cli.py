@@ -11,7 +11,7 @@ from datetime import datetime
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Extract data from Trafikverket website and save to Excel',
+        description='Extract data from Trafikverket website',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -19,10 +19,10 @@ Examples:
   python cli.py
   
   # Specify custom output file
-  python cli.py -o custom_output.xlsx
+  python cli.py -o custom_output.csv
   
   # Use custom URL
-  python cli.py -u "https://vtf.trafikverket.se/..." -o data.xlsx
+  python cli.py -u "https://vtf.trafikverket.se/..." -o data.csv
   
   # Run in headless mode (background)
   python cli.py --headless
@@ -38,7 +38,7 @@ Examples:
     parser.add_argument(
         '-o', '--output',
         default=None,
-        help='Output Excel file path (default: trafikverket_data_<timestamp>.xlsx)'
+        help='Output file path (default: trafikverket_data_<timestamp>.csv)'
     )
     
     parser.add_argument(
@@ -66,7 +66,7 @@ Examples:
     print("Trafikverket Data Extractor")
     print("=" * 60)
     print(f"URL: {args.url}")
-    print(f"Output: {args.output or 'trafikverket_data_<timestamp>.xlsx'}")
+    print(f"Output: {args.output or 'trafikverket_data_<timestamp>.csv'}")
     print(f"Headless mode: {'Yes' if args.headless else 'No'}")
     print("=" * 60)
     print()

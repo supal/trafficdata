@@ -1,6 +1,6 @@
 """
 Traffic Data Extractor from Trafikverket
-Extracts data from the Trafikverket website and exports to Excel
+Extracts data from the Trafikverket website and exports to CSV
 Compatible with Python 3.9.6+
 """
 
@@ -54,7 +54,7 @@ class TrafikverketScraper:
         self.db_config = {
             'host': 'localhost',
             'user': 'postgres',
-            'password': '',
+            'password': 'postgres',
             'database': 'traffic_data',
             'port': 5432
         }
@@ -1052,7 +1052,7 @@ def main():
     print()
     
     parser = argparse.ArgumentParser(
-        description='Extract data from Trafikverket website and save to Excel'
+        description='Extract data from Trafikverket website'
     )
     
     parser.add_argument(
@@ -1070,7 +1070,7 @@ def main():
     parser.add_argument(
         '-o', '--output',
         default=None,
-        help='Output Excel file path (default: trafikverket_data_<url_hash>.xlsx)'
+        help='Output file path (default: trafikverket_data_<url_hash>.csv)'
     )
     
     parser.add_argument(
@@ -1124,12 +1124,12 @@ def main():
         
         # Generate output filename based on URL hash if not specified
         if args.output:
-            output_file = args.output if len(urls_to_process) == 1 else f"{args.output.replace('.xlsx', '')}_{url_idx}.xlsx"
+            output_file = args.output if len(urls_to_process) == 1 else f"{args.output.replace('.csv', '')}_{url_idx}.csv"
         else:
             # Create a hash-based filename for each URL
             import hashlib
             url_hash = hashlib.md5(url.encode()).hexdigest()[:8]
-            output_file = f"trafikverket_data_{url_hash}.xlsx"
+            output_file = f"trafikverket_data_{url_hash}.csv"
         
         print(f"Output file: {output_file}\n")
         
