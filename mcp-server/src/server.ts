@@ -9,6 +9,7 @@ import {
   TextContent,
 } from '@modelcontextprotocol/sdk/types.js';
 import { db } from './database.js';
+import { generateSpeedGraph, analyzePeakHours } from './analytics.js';
 
 // Create the MCP server with capabilities
 const server = new Server({
@@ -20,8 +21,32 @@ const server = new Server({
   },
 });
 
+// Vehicle type configurations for analytics
+const VEHICLE_TYPES = {
+  all_vehicles: { name: 'All Vehicles' },
+  passenger_cars: { name: 'Passenger Cars' },
+  heavy_vehicles: { name: 'Heavy Vehicles' },
+  heavy_vehicles_trailer: { name: 'Heavy Vehicles with Trailer' },
+  heavy_vehicles_no_trailer: { name: 'Heavy Vehicles without Trailer' },
+  three_axle_tractor_trailer: { name: 'Three-Axle Tractor with Trailer' },
+  two_axle_tractor_trailer: { name: 'Two-Axle Tractor with Trailer' },
+  three_axle_tractor_no_trailer: { name: 'Three-Axle Tractor without Trailer' },
+  two_axle_tractor_no_trailer: { name: 'Two-Axle Tractor without Trailer' },
+  passenger_car_trailer: { name: 'Passenger Cars with Trailer' },
+  passenger_car_no_trailer: { name: 'Passenger Cars without Trailer' },
+};
+
 // Define available tools
 const tools: Tool[] = [
+  {
+    name: 'ping',
+    description: 'Test the server with a simple ping',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
   {
     name: 'get_all_traffic_data',
     description: 'Retrieve all traffic data from the database with optional limit',
@@ -32,6 +57,88 @@ const tools: Tool[] = [
           type: 'number',
           description: 'Maximum number of records to return (default: 1000)',
           default: 1000,
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'get_traffic_statistics',
+    description: 'Get comprehensive traffic statistics including counts and speeds by vehicle type',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: 'get_speed_comparison',
+    description: 'Compare average speeds for all vehicle types',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        start_date: {
+          type: 'string',
+          description: 'Optional start date (YYYY-MM-DD)',
+        },
+        end_date: {
+          type: 'string',
+          description: 'Optional end date (YYYY-MM-DD)',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'get_vehicle_count_comparison',
+    description: 'Compare average vehicle counts by type',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        start_date: {
+          type: 'string',
+          description: 'Optional start date (YYYY-MM-DD)',
+        },
+        end_date: {
+          type: 'string',
+          description: 'Optional end date (YYYY-MM-DD)',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'generate_speed_graph',
+    description: 'Generate a visualization of speed trends over time for selected vehicle types',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        vehicle_types: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Vehicle types to include in graph (default: heavy_vehicles, passenger_cars)',
+        },
+        start_date: {
+          type: 'string',
+          description: 'Optional start date (YYYY-MM-DD)',
+        },
+        end_date: {
+          type: 'string',
+          description: 'Optional end date (YYYY-MM-DD)',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'get_peak_hours',
+    description: 'Analyze traffic patterns to find peak hours and times',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        vehicle_type: {
+          type: 'string',
+          description: 'Specific vehicle type to analyze (optional)',
         },
       },
       required: [],
@@ -67,15 +174,6 @@ const tools: Tool[] = [
         },
       },
       required: ['start_date', 'end_date'],
-    },
-  },
-  {
-    name: 'get_traffic_statistics',
-    description: 'Get comprehensive traffic statistics including counts and speeds by vehicle type',
-    inputSchema: {
-      type: 'object',
-      properties: {},
-      required: [],
     },
   },
   {
@@ -120,42 +218,6 @@ const tools: Tool[] = [
       required: ['punkt_nummer'],
     },
   },
-  {
-    name: 'get_vehicle_counts_comparison',
-    description: 'Get average vehicle counts by type (all vehicles, passenger cars, heavy vehicles, etc.)',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        start_date: {
-          type: 'string',
-          description: 'Optional start date (YYYY-MM-DD)',
-        },
-        end_date: {
-          type: 'string',
-          description: 'Optional end date (YYYY-MM-DD)',
-        },
-      },
-      required: [],
-    },
-  },
-  {
-    name: 'get_speeds_comparison',
-    description: 'Get average speeds by vehicle type across all measurement points',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        start_date: {
-          type: 'string',
-          description: 'Optional start date (YYYY-MM-DD)',
-        },
-        end_date: {
-          type: 'string',
-          description: 'Optional end date (YYYY-MM-DD)',
-        },
-      },
-      required: [],
-    },
-  },
 ];
 
 // Handler for listing available tools
@@ -171,6 +233,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     let result;
 
     switch (name) {
+      case 'ping': {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: 'pong',
+            },
+          ],
+        };
+      }
+
       case 'get_all_traffic_data': {
         const limit = (args as any).limit || 1000;
         result = await db.getAllTrafficData(limit);
@@ -276,7 +349,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case 'get_vehicle_counts_comparison': {
+      case 'get_vehicle_count_comparison': {
         const { start_date, end_date } = args as any;
         result = await db.getVehicleCountsComparison(start_date, end_date);
         return {
@@ -289,7 +362,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case 'get_speeds_comparison': {
+      case 'get_speed_comparison': {
         const { start_date, end_date } = args as any;
         result = await db.getSpeedsComparison(start_date, end_date);
         return {
@@ -297,6 +370,35 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: 'text' as const,
               text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      }
+
+      case 'generate_speed_graph': {
+        const { vehicle_types, start_date, end_date } = args as any;
+        const graphData = await generateSpeedGraph(vehicle_types, start_date, end_date);
+        if (!graphData) {
+          throw new Error('Could not generate graph');
+        }
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: graphData,
+            },
+          ],
+        };
+      }
+
+      case 'get_peak_hours': {
+        const { vehicle_type } = args as any;
+        const analysis = await analyzePeakHours(vehicle_type);
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: analysis,
             },
           ],
         };
