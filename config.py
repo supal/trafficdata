@@ -50,3 +50,8 @@ LOG_FILE = None  # Set to filename to log to file, None to disable
 # Retry settings
 MAX_RETRIES = 3
 RETRY_DELAY = 2  # Seconds between retries
+
+# Row limit settings
+# If rowCount is set to a positive value, the program will exit after that many rows
+# Set to 0 or None to disable row limit
+rowCount = 0  # 0 = unlimited, >0 = max rows to process
