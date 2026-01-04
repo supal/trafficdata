@@ -266,3 +266,188 @@ export async function analyzePeakHours(vehicleType?: string): Promise<string> {
     return 'Error analyzing traffic patterns';
   }
 }
+
+// Transform traffic data to long format
+export interface LongFormatRecord {
+  measurement_time: string;
+  county: string;
+  road_number: string;
+  punkt_nummer: string;
+  vehicle_type: string;
+  count: number;
+  avg_speed: number;
+}
+
+export async function transformToLongFormat(limit?: number): Promise<LongFormatRecord[]> {
+  try {
+    const data = await db.getAllTrafficData(limit || 5000);
+    const longFormat: LongFormatRecord[] = [];
+
+    const vehicleTypes = [
+      'all_vehicles',
+      'passenger_car',
+      'heavy_vehicles',
+      'heavy_vehicles_trailer',
+      'heavy_vehicles_no_trailer',
+      'three_axle_tractor_trailer',
+      'two_axle_tractor_trailer',
+      'three_axle_tractor_no_trailer',
+      'two_axle_tractor_no_trailer',
+      'passenger_car_trailer',
+      'passenger_car_no_trailer',
+    ];
+
+    for (const record of data) {
+      for (const vehicleType of vehicleTypes) {
+        const countKey = `${vehicleType}_count` as keyof typeof record;
+        const speedKey = `${vehicleType}_avg_speed` as keyof typeof record;
+        
+        const count = parseInt(String((record[countKey] as any) || 0));
+        const speed = parseFloat(String((record[speedKey] as any) || 0));
+
+        if (count > 0 || speed > 0) {
+          longFormat.push({
+            measurement_time: String(record.measurement_time || ''),
+            county: String(record.county || ''),
+            road_number: String(record.road_number || ''),
+            punkt_nummer: String(record.punkt_nummer || ''),
+            vehicle_type: vehicleType,
+            count,
+            avg_speed: speed,
+          });
+        }
+      }
+    }
+
+    return longFormat;
+  } catch (error) {
+    console.error('Error transforming to long format:', error);
+    return [];
+  }
+}
+
+// Generate bar chart for average speeds
+export async function generateSpeedBarChart(): Promise<string> {
+  try {
+    const data = await db.getAllTrafficData(5000);
+    
+    const vehicleTypeMap = new Map<string, number[]>();
+    const vehicleTypeLabels: { [key: string]: string } = {
+      all_vehicles: 'All Vehicles',
+      passenger_car: 'Passenger Cars',
+      heavy_vehicles: 'Heavy Vehicles',
+      heavy_vehicles_trailer: 'HV with Trailer',
+      heavy_vehicles_no_trailer: 'HV no Trailer',
+      three_axle_tractor_trailer: '3-Axle Tractor+Trailer',
+      two_axle_tractor_trailer: '2-Axle Tractor+Trailer',
+      three_axle_tractor_no_trailer: '3-Axle Tractor',
+      two_axle_tractor_no_trailer: '2-Axle Tractor',
+      passenger_car_trailer: 'Passenger+Trailer',
+      passenger_car_no_trailer: 'Passenger Car (no Trailer)',
+    };
+
+    for (const record of data) {
+      for (const [vehicleType, label] of Object.entries(vehicleTypeLabels)) {
+        const speedKey = `${vehicleType}_avg_speed` as keyof typeof record;
+        const speed = parseFloat(String((record[speedKey] as any) || 0));
+        
+        if (speed > 0) {
+          if (!vehicleTypeMap.has(vehicleType)) {
+            vehicleTypeMap.set(vehicleType, []);
+          }
+          vehicleTypeMap.get(vehicleType)!.push(speed);
+        }
+      }
+    }
+
+    let result = '\n╔════════════════════════════════════════════════════╗\n';
+    result += '║         AVERAGE SPEED BY VEHICLE TYPE             ║\n';
+    result += '╚════════════════════════════════════════════════════╝\n\n';
+
+    const entries = Array.from(vehicleTypeMap.entries())
+      .map(([type, speeds]) => ({
+        type,
+        label: vehicleTypeLabels[type],
+        average: speeds.reduce((a, b) => a + b, 0) / speeds.length,
+      }))
+      .sort((a, b) => b.average - a.average);
+
+    const maxSpeed = Math.max(...entries.map(e => e.average));
+    const barWidth = 40;
+
+    for (const entry of entries) {
+      const barLength = Math.round((entry.average / maxSpeed) * barWidth);
+      const bar = '█'.repeat(barLength) + '░'.repeat(barWidth - barLength);
+      result += `${entry.label.padEnd(25)} │${bar}│ ${entry.average.toFixed(1)} km/h\n`;
+    }
+
+    result += '\n';
+    return result;
+  } catch (error) {
+    console.error('Error generating speed bar chart:', error);
+    return 'Error generating chart';
+  }
+}
+
+// Generate bar chart for vehicle counts
+export async function generateVehicleCountBarChart(): Promise<string> {
+  try {
+    const data = await db.getAllTrafficData(5000);
+    
+    const vehicleTypeMap = new Map<string, number[]>();
+    const vehicleTypeLabels: { [key: string]: string } = {
+      all_vehicles: 'All Vehicles',
+      passenger_car: 'Passenger Cars',
+      heavy_vehicles: 'Heavy Vehicles',
+      heavy_vehicles_trailer: 'HV with Trailer',
+      heavy_vehicles_no_trailer: 'HV no Trailer',
+      three_axle_tractor_trailer: '3-Axle Tractor+Trailer',
+      two_axle_tractor_trailer: '2-Axle Tractor+Trailer',
+      three_axle_tractor_no_trailer: '3-Axle Tractor',
+      two_axle_tractor_no_trailer: '2-Axle Tractor',
+      passenger_car_trailer: 'Passenger+Trailer',
+      passenger_car_no_trailer: 'Passenger Car (no Trailer)',
+    };
+
+    for (const record of data) {
+      for (const [vehicleType, label] of Object.entries(vehicleTypeLabels)) {
+        const countKey = `${vehicleType}_count` as keyof typeof record;
+        const count = parseInt(String((record[countKey] as any) || 0));
+        
+        if (count > 0) {
+          if (!vehicleTypeMap.has(vehicleType)) {
+            vehicleTypeMap.set(vehicleType, []);
+          }
+          vehicleTypeMap.get(vehicleType)!.push(count);
+        }
+      }
+    }
+
+    let result = '\n╔════════════════════════════════════════════════════╗\n';
+    result += '║        AVERAGE VEHICLE COUNT BY TYPE               ║\n';
+    result += '╚════════════════════════════════════════════════════╝\n\n';
+
+    const entries = Array.from(vehicleTypeMap.entries())
+      .map(([type, counts]) => ({
+        type,
+        label: vehicleTypeLabels[type],
+        average: counts.reduce((a, b) => a + b, 0) / counts.length,
+      }))
+      .sort((a, b) => b.average - a.average);
+
+    const maxCount = Math.max(...entries.map(e => e.average));
+    const barWidth = 40;
+
+    for (const entry of entries) {
+      const barLength = Math.round((entry.average / maxCount) * barWidth);
+      const bar = '█'.repeat(barLength) + '░'.repeat(barWidth - barLength);
+      result += `${entry.label.padEnd(25)} │${bar}│ ${entry.average.toFixed(1)} vehicles\n`;
+    }
+
+    result += '\n';
+    return result;
+  } catch (error) {
+    console.error('Error generating vehicle count chart:', error);
+    return 'Error generating chart';
+  }
+}

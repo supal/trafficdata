@@ -9,7 +9,13 @@ import {
   TextContent,
 } from '@modelcontextprotocol/sdk/types.js';
 import { db } from './database.js';
-import { generateSpeedGraph, analyzePeakHours } from './analytics.js';
+import {
+  generateSpeedGraph,
+  analyzePeakHours,
+  transformToLongFormat,
+  generateSpeedBarChart,
+  generateVehicleCountBarChart,
+} from './analytics.js';
 
 // Create the MCP server with capabilities
 const server = new Server({
@@ -218,6 +224,39 @@ const tools: Tool[] = [
       required: ['punkt_nummer'],
     },
   },
+  {
+    name: 'transform_to_long_format',
+    description: 'Transform traffic data from wide format to long format (one row per vehicle type)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: {
+          type: 'number',
+          description: 'Maximum number of records to process (default: 5000)',
+          default: 5000,
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'generate_speed_bar_chart',
+    description: 'Generate a bar chart visualization of average speeds by vehicle type',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: 'generate_vehicle_count_bar_chart',
+    description: 'Generate a bar chart visualization of average vehicle counts by type',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
 ];
 
 // Handler for listing available tools
@@ -399,6 +438,43 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: 'text' as const,
               text: analysis,
+            },
+          ],
+        };
+      }
+
+      case 'transform_to_long_format': {
+        const { limit } = args as any;
+        const longFormatData = await transformToLongFormat(limit);
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify(longFormatData, null, 2),
+            },
+          ],
+        };
+      }
+
+      case 'generate_speed_bar_chart': {
+        const chart = await generateSpeedBarChart();
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: chart,
+            },
+          ],
+        };
+      }
+
+      case 'generate_vehicle_count_bar_chart': {
+        const chart = await generateVehicleCountBarChart();
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: chart,
             },
           ],
         };
