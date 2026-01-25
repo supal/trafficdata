@@ -1,20 +1,22 @@
 # Trafikverket Data Extractor
 
-A Python-based web scraper that extracts traffic measurement data from the Trafikverket website and exports it to Excel files.
+A Python-based web scraper that extracts traffic measurement data from the Trafikverket website and stores it in a PostgreSQL database.
 
 ## Features
 
 - 🚀 **Automated web scraping** - Automatically navigates the Trafikverket website
 - 📊 **Multi-URL support** - Process multiple URLs from a configuration file
-- 📈 **Data aggregation** - Combines data from multiple measurement occasions into single Excel files
+- 🗄️ **PostgreSQL integration** - Stores traffic data in a relational database with automatic schema creation
 - ⚡ **Headless mode** - Fast, background execution without UI
 - 🔄 **Intelligent waits** - Executes as soon as elements load, not fixed delays
+- 🔁 **Duplicate detection** - Prevents duplicate records based on composite keys
 - 📝 **Python 3.9+ compatible** - Works with Python 3.9.6 and newer versions
 
 ## Prerequisites
 
 - **Python 3.9.6 or higher**
 - **Google Chrome** (must be installed on your system)
+- **PostgreSQL 12+** (local or remote database server)
 - **pip** (Python package manager)
 - **git** (for version control, optional)
 
@@ -30,7 +32,38 @@ cd trafficdata
 # Or download and extract the ZIP file manually
 ```
 
-### Step 2: Set Up Virtual Environment and Dependencies
+### Step 2: Set Up PostgreSQL Database
+
+**Create the database and user (use default credentials for local development):**
+
+```bash
+# Login to PostgreSQL
+psql -U postgres
+
+# Create database and user
+CREATE DATABASE traffic_data;
+CREATE USER trafficdata WITH PASSWORD 'trafficdata';
+ALTER ROLE trafficdata SET client_encoding TO 'utf8';
+ALTER ROLE trafficdata SET default_transaction_isolation TO 'read committed';
+ALTER ROLE trafficdata SET timezone TO 'UTC';
+GRANT ALL PRIVILEGES ON DATABASE traffic_data TO trafficdata;
+
+# Exit psql
+\q
+```
+
+**Or edit `scraper.py` to customize database credentials:**
+```python
+self.db_config = {
+    'host': 'your-host',
+    'user': 'your-username',
+    'password': 'your-password',
+    'database': 'traffic_data',
+    'port': 5432
+}
+```
+
+### Step 3: Set Up Virtual Environment and Dependencies
 
 **On macOS/Linux:**
 ```bash
@@ -52,7 +85,7 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-### Step 3: Verify Installation
+### Step 4: Verify Installation
 
 ```bash
 # On macOS/Linux
@@ -66,7 +99,22 @@ You should see the help menu with available options.
 
 ## Quick Start
 
-### 1. Add URLs to Process
+### 1. Ensure PostgreSQL is Running
+
+Make sure your PostgreSQL server is running and the `traffic_data` database is created.
+
+```bash
+# On macOS with Homebrew
+brew services start postgresql
+
+# On Linux with systemd
+sudo systemctl start postgresql
+
+# On Windows
+# PostgreSQL service should start automatically, or start it from Services
+```
+
+### 2. Add URLs to Process
 
 Edit `input_url.txt` and add one URL per line:
 
@@ -75,7 +123,7 @@ https://vtf.trafikverket.se/tmg101/AGS/tmg104bestaellinfouttag.aspx?punktnrlista
 https://vtf.trafikverket.se/tmg101/AGS/tmg104bestaellinfouttag.aspx?punktnrlista=13520474,13520475&laenkrollista=1,1
 ```
 
-### 2. Run the Scraper
+### 3: Run the Scraper
 
 **Recommended (fastest):**
 ```bash
@@ -89,22 +137,33 @@ run.cmd scraper.py --headless   # Windows
 run.cmd scraper.py     # Windows
 ```
 
-### 3. Check Output
+### 4: Check Output
 
-Excel files will be generated in the same directory:
-- `trafikverket_data_1522be33.xlsx`
-- `trafikverket_data_5fdf80ae.xlsx`
+Data will be automatically stored in the PostgreSQL `traffic_data` database. Query the data using:
+
+```bash
+# Connect to the database
+psql -U postgres -d traffic_data
+
+# Query all records
+SELECT * FROM public.traffic_data;
+
+# Query by date range
+SELECT * FROM public.traffic_data 
+WHERE measurement_time >= '2026-01-01' AND measurement_time < '2026-02-01';
+
+# Query by road number
+SELECT * FROM public.traffic_data WHERE road_number = '25';
+```
 
 ## Command-Line Options
 
 ```bash
-Usage: scraper.py [-h] [-i INPUT] [-u URL] [-o OUTPUT] [--headless]
+Usage: scraper.py [-h] [-u URL] [--headless]
 
 Options:
   -h, --help              Show help message and exit
-  -i, --input INPUT       Input file with URLs (default: input_url.txt)
   -u, --url URL           Single URL to process (overrides input file)
-  -o, --output OUTPUT     Output Excel filename (default: auto-generated)
   --headless              Run browser in headless mode (faster, no UI)
 ```
 
@@ -120,16 +179,6 @@ Options:
 ./run.sh scraper.py -u "https://vtf.trafikverket.se/..." --headless
 ```
 
-**Use custom input file:**
-```bash
-./run.sh scraper.py -i my_urls.txt --headless
-```
-
-**Specify custom output file:**
-```bash
-./run.sh scraper.py -o traffic_data.xlsx --headless
-```
-
 **Run with browser window visible (for debugging):**
 ```bash
 ./run.sh scraper.py
@@ -137,20 +186,31 @@ Options:
 
 ## Output Format
 
-Each URL generates a separate Excel file:
+Data is stored directly in the PostgreSQL `traffic_data` database with the following schema:
 
-- **Filename:** `trafikverket_data_<hash>.xlsx`
-- **Content:** 
-  - Single sheet named "Data"
-  - All measurement occasions combined
-  - Headers only on first row (no duplicates)
-  - One data row per record
+**Table: `public.traffic_data`**
 
-**Example:**
-```
-trafikverket_data_1522be33.xlsx  (221 rows)
-trafikverket_data_5fdf80ae.xlsx  (394 rows)
-```
+| Column | Type | Description |
+|--------|------|-------------|
+| id | SERIAL PRIMARY KEY | Unique record identifier |
+| measurement_time | TIMESTAMP | Date and time of measurement |
+| county | VARCHAR(100) | County/Region (Län) |
+| road_number | VARCHAR(10) | Road number (Vägnr) |
+| punkt_nummer | VARCHAR(20) | Measurement point ID |
+| all_vehicles_count | INTEGER | Total vehicle count |
+| all_vehicles_avg_speed | DECIMAL(5, 2) | Average speed for all vehicles |
+| passenger_car_count | INTEGER | Passenger car count |
+| passenger_car_avg_speed | DECIMAL(5, 2) | Average passenger car speed |
+| heavy_vehicles_count | INTEGER | Heavy vehicle count |
+| heavy_vehicles_avg_speed | DECIMAL(5, 2) | Average heavy vehicle speed |
+| *_trailer_count / *_no_trailer_count | INTEGER | Breakdown by trailer type |
+| *_trailer_avg_speed / *_no_trailer_avg_speed | DECIMAL(5, 2) | Speed data by trailer type |
+| created_at | TIMESTAMP | Record insertion timestamp |
+
+**Key Features:**
+- Automatic schema creation on first run
+- Composite key duplicate detection (measurement_time, county, road_number, punkt_nummer)
+- Indexed for fast queries on measurement_time, punkt_nummer, and road/county combinations
 
 ## Project Structure
 
@@ -183,8 +243,8 @@ For each URL:
    - Click start button
    - Wait for popup window
    - Extract data from table
-4. **Combine** - Merges all extracted data
-5. **Export** - Saves combined data to Excel file
+4. **Insert** - Stores each record in PostgreSQL with duplicate detection
+5. **Commit** - Data is persisted to database
 
 ## Troubleshooting
 
@@ -195,6 +255,42 @@ For each URL:
 ```bash
 ./run.sh scraper.py --headless  # macOS/Linux
 run.cmd scraper.py --headless   # Windows
+```
+
+### Issue: "could not translate host name \"localhost\" to address"
+
+**Solution:** PostgreSQL is not running or not accessible. Check:
+
+```bash
+# On macOS
+brew services list | grep postgres
+
+# On Linux
+sudo systemctl status postgresql
+
+# Try connecting directly
+psql -U postgres -d traffic_data
+```
+
+If you get "connection refused", start PostgreSQL:
+```bash
+# macOS
+brew services start postgresql
+
+# Linux
+sudo systemctl start postgresql
+```
+
+### Issue: "FATAL: database 'traffic_data' does not exist"
+
+**Solution:** Create the database following Step 2 of the installation:
+
+```bash
+psql -U postgres
+CREATE DATABASE traffic_data;
+CREATE USER trafficdata WITH PASSWORD 'trafficdata';
+GRANT ALL PRIVILEGES ON DATABASE traffic_data TO trafficdata;
+\q
 ```
 
 ### Issue: Browser window not opening in headless mode
@@ -248,6 +344,18 @@ sudo apt-get install chromium
 sudo dnf install chromium
 ```
 
+### Issue: Duplicate rows in database
+
+The scraper includes duplicate detection based on composite key (measurement_time, county, road_number, punkt_nummer). If you see duplicates, this may indicate:
+- Data was inserted twice with slightly different timestamps
+- The composite key detection needs adjustment
+
+Check the database:
+```bash
+SELECT COUNT(*) FROM public.traffic_data;
+SELECT DISTINCT measurement_time, county, road_number, punkt_nummer FROM public.traffic_data;
+```
+
 ## Python Version Support
 
 - ✅ Tested: Python 3.9.6, 3.13.8
@@ -267,8 +375,8 @@ python3 --version
 ### Python Packages
 
 - **selenium** (4.38.0) - Web browser automation
-- **pandas** (2.3.3) - Data manipulation and Excel operations
-- **openpyxl** (3.1.5) - Excel file creation
+- **pandas** (2.3.3) - Data manipulation
+- **psycopg2** (2.9.0+) - PostgreSQL database adapter
 - **webdriver-manager** (4.0.2) - Automatic Chrome driver management
 
 All dependencies are automatically installed during setup.
